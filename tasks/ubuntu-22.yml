@@ -1,0 +1,179 @@
+# The sysctl module will set variables in /etc/sysctl.conf and tell sysctl
+#  to reload them immediately if 'reload' is set to 'yes'.
+- name: 1.5.1 - Ensure address space layout reandomization (ASLR) is enabled
+  ansible.posix.sysctl:
+    name: kernel.randomize_va_space
+    value: "2"
+    reload: true
+    state: present
+    sysctl_set: true
+  tags:
+    - 1.5.1
+
+# Use system package manager to remove the prelink package
+- name: 1.5.2 - Remove prelink package
+  ansible.builtin.package:
+    name: prelink
+    state: absent
+  tags:
+    - 1.5.2
+
+- name: 1.5.3 - Ensure Apport Error Reporting Service is disabled
+  tags:
+    - 1.5.3
+  block:
+    - name: 1.5.3 - Ensure Apport Error Reporting Service is disabled
+      ansible.builtin.systemd:
+        name: apport.service
+        enabled: false
+        state: stopped
+
+    - name: 1.5.3 - Ensure that it does not start again
+      ansible.builtin.lineinfile:
+        dest: "/etc/default/apport"
+        regexp: '^\ *enabled\ *=\ *[^0]\b'
+        line: "enabled=0"
+        state: present
+
+- name: 1.5.4 - Ensure core dumps are restricted
+  tags:
+    - 1.5.4
+  block:
+    # The sysctl module will set variables in /etc/sysctl.conf and tell sysctl
+    #  to reload them immediately if 'reload' is set to 'yes'.
+    - name: 1.5.4 - Ensure core dumps are restricted
+      ansible.posix.sysctl:
+        name: fs.suid_dumpable
+        value: "0"
+        state: present
+        reload: true
+
+# 1.7 Warning Banners
+
+# Use copy module to copy in the appropriate files based on variable and set permissions
+- name: 1.7.1 - Install motd banners
+  ansible.builtin.copy:
+    src: "{{ motd_file }}"
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: 0644
+  when: motd_use is defined and motd_use
+  tags:
+    - 1.7.1
+    - 1.7.4
+
+# Use copy module to copy in the appropriate files based on variable and set permissions
+- name: 1.7.2 - Install issue banners
+  ansible.builtin.copy:
+    src: "{{ issue_file }}"
+    dest: /etc/issue
+    owner: root
+    group: root
+    mode: 0644
+  when: issue_use is defined and issue_use
+  tags:
+    - 1.7.2
+    - 1.7.5
+
+# Use copy module to copy in the appropriate files based on variable and set permissions
+- name: 1.7.3 - Install issue.net banners
+  ansible.builtin.copy:
+    src: "{{ issue_net_file }}"
+    dest: /etc/issue.net
+    owner: root
+    group: root
+    mode: 0644
+  when: issue_net_use is defined and issue_net_use
+  tags:
+    - 1.7.3
+    - 1.7.6
+
+- name: 3.1.3 - Ensure bluetooth is disabled
+  ansible.builtin.systemd:
+    name: bluetooth
+    enabled: false
+    masked: true
+    state: stopped
+  when: "'bluez' in ansible_facts.packages and ( service_bluetooth is defined and not service_bluetooth  )"
+  tags:
+    - 3.1.3
+
+#  IPv4 network parameters
+- name: 3.2.0 - Create empty dictionary for unneeded IPv4 network parameters
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: {}
+
+- name: 3.2.0 - Create empty dictionary for unneeded IPv6 network parameters
+  ansible.builtin.set_fact:
+    unneeded_ipv6_network: {}
+
+- name: 3.2.2 - Ensure IP forwarding is disabled
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ 'net.ipv4.ip_forward' : '0'}) }}"
+  tags:
+    - 3.2.2
+
+- name: 3.2.2 - Ensure IP forwarding is disabled
+  ansible.builtin.set_fact:
+    unneeded_ipv6_network: "{{ unneeded_ipv6_network | combine({ 'net.ipv6.conf.all.forwarding' : '0'}) }}"
+  when: not ipv6_disable
+  tags:
+    - 3.2.2
+
+- name: 3.2.1 - Ensure packet redirect sending is disabled
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ item : '0' }) }}"
+  loop:
+    - net.ipv4.conf.all.send_redirects
+    - net.ipv4.conf.default.send_redirects
+  tags:
+    - 3.2.1
+
+- name: 3.3.1 - Ensure source routed packets are not accepted
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ item : '0' }) }}"
+  loop:
+    - net.ipv4.conf.all.accept_source_route
+    - net.ipv4.conf.default.accept_source_route
+  tags:
+    - 3.3.1
+
+- name: 3.3.1 - Ensure source routed packets are not accepted
+  ansible.builtin.set_fact:
+    unneeded_ipv6_network: "{{ unneeded_ipv6_network | combine({ item : '0' }) }}"
+  loop:
+    - net.ipv6.conf.all.accept_source_route
+    - net.ipv6.conf.default.accept_source_route
+  when: not ipv6_disable
+  tags:
+    - 3.3.1
+
+- name: 3.3.2 - Ensure ICMP redirects are not accepted
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ item : '0' }) }}"
+  loop:
+    - net.ipv4.conf.all.accept_redirects
+    - net.ipv4.conf.default.accept_redirects
+  tags:
+    - 3.3.2
+
+- name: 3.3.2 - Ensure ICMP redirects are not accepted
+  ansible.builtin.set_fact:
+    unneeded_ipv6_network: "{{ unneeded_ipv6_network | combine({ item : '0' }) }}"
+  loop:
+    - net.ipv6.conf.all.accept_redirects
+    - net.ipv6.conf.default.accept_redirects
+  when: not ipv6_disable
+  tags:
+    - 3.3.2
+
+- name: 3.3.3 - Ensure secure ICMP redirects are not accepted
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ item : '0' }) }}"
+  loop:
+    - net.ipv4.conf.all.secure_redirects
+    - net.ipv4.conf.default.secure_redirects
+  tags:
+    - 3.3.3
+

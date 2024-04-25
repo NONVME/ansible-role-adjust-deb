@@ -1,4 +1,17 @@
 ---
+# Packages install
 - include: packages.yml
   tags:
     - packages
+
+# Everything related to personal work environment
+- include: environment.yml
+  tags:
+    - environment
+
+# Fail2Ban
+- include_tasks: fail2ban.yml
+  when: security_fail2ban_enabled | bool
+
+# ubuntu-22
+- include_tasks: ubuntu-22.yml

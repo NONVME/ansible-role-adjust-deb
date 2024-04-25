@@ -1,0 +1,24 @@
+---
+- name: Setup aliases
+  ansible.builtin.copy:
+    dest: /etc/profile.d/aliases.sh
+    content: |
+      alias ll='ls -alhv --color=auto --group-directories-first'
+      alias l='ls -lhart --color=auto'
+      alias ra='. ranger'
+      alias sudo='sudo '
+      alias vi='nvim'
+      alias r=''
+
+      if [ -x /usr/bin/dircolors ]; then
+          test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+
+          alias grep='grep --color=auto'
+          alias fgrep='fgrep --color=auto'
+          alias egrep='egrep --color=auto'
+      fi
+
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

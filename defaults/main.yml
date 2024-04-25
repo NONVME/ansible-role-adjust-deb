@@ -13,6 +13,11 @@ apt_install_packages:
   - tmux
   - unzip
   - vim
+  - python3
+  - python3-pip
+  - jq
+  - bat
+  - dircolors
 
 apt_remove_packages:
   - apparmor
@@ -38,3 +43,15 @@ apt_remove_packages:
   - ubuntu-advantage-tools
   - ufw
   - vim.tiny
+
+
+security_ssh_port: 22
+security_fail2ban_enabled: true
+security_fail2ban_custom_configuration_template: "jail.local.j2"
+
+motd_use: true                  # Linux: RHEL 9: set to 'true' to use motd file, 'false' to not use
+motd_file: "banner"             # Linux: File location by default in 'files' directory
+issue_use: true                 # Linux: RHEL 9: set to 'true' to use issue file, 'false' to not use
+issue_file: "issue"             # Linux: File location by default in 'files' directory
+issue_net_use: true             # Linux: RHEL 9: set to 'true' to use issue.net file, 'false' to not use
+issue_net_file: "issue"         # Linux: File location by default in 'files' diretory
