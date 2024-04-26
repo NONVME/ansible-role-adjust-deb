@@ -177,3 +177,73 @@
   tags:
     - 3.3.3
 
+- name: 3.3.4 - Ensure suspicious packets are logged
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ item : '1' }) }}"
+  loop:
+    - net.ipv4.conf.all.log_martians
+    - net.ipv4.conf.default.log_martians
+  tags:
+    - 3.3.4
+
+- name: 3.3.5 - Ensure broadcast ICMP requests are ignored
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ 'net.ipv4.icmp_echo_ignore_broadcasts' : '1' }) }}"
+  tags:
+    - 3.3.5
+
+- name: 3.3.6 - Ensure bogus ICMP responses are ignored
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ 'net.ipv4.icmp_ignore_bogus_error_responses' : '1' }) }}"
+  tags:
+    - 3.3.6
+
+- name: 3.3.7 - Ensure reverse path filtering is enabled
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ item : '1' }) }}"
+  loop:
+    - net.ipv4.conf.all.rp_filter
+    - net.ipv4.conf.default.rp_filter
+  tags:
+    - 3.3.7
+
+- name: 3.3.8 - Ensure TCP SYN Cookies is enabled
+  ansible.builtin.set_fact:
+    unneeded_ipv4_network: "{{ unneeded_ipv4_network | combine({ 'net.ipv4.tcp_syncookies' : '1' }) }}"
+  tags:
+    - 3.3.8
+
+- name: 3.3.9 - Ensure IPv6 router advertisements are not accepted
+  ansible.builtin.set_fact:
+    unneeded_ipv6_network: "{{ unneeded_ipv6_network | combine({ item : '0' }) }}"
+  when: not ipv6_disable
+  loop:
+    - net.ipv6.conf.all.accept_ra
+    - net.ipv6.conf.default.accept_ra
+  tags:
+    - 3.3.9
+
+- name: 3.3 - list of IPv4 network settings
+  ansible.builtin.debug:
+    var: unneeded_ipv4_network
+
+- name: 3.3 - list of IPv6 network settings
+  ansible.builtin.debug:
+    var: unneeded_ipv6_network
+
+# The sysctl module will configure certain sysctl parameters. They are
+#  collected into a loop here to speed the implementation
+# Once complete, notify the system to flush the network routes
+- name: 3.3 - Process unneeded network settings for IPv4
+  tags:
+    - 3.3.0
+  block:
+    - name: 3.3 - Set networking parameters
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        reload: true
+        state: present
+        sysctl_set: true
+      loop: "{{ lookup('ansible.builtin.dict' , unneeded_ipv4_network) }}"
+      notify: Flush network routes
