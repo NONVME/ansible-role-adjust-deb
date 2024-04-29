@@ -247,3 +247,832 @@
         sysctl_set: true
       loop: "{{ lookup('ansible.builtin.dict' , unneeded_ipv4_network) }}"
       notify: Flush network routes
+
+# Section 3 - Firewall
+
+- name: 3.5.1 - Install firewall package
+  when: enable_firewall is defined and enable_firewall == "ufw"
+  tags:
+    - 3.5.1
+  block:
+    - name: 3.5.1.1 - Install ufw
+      ansible.builtin.package:
+        name: "ufw"
+        state: present
+      notify: Start ufw # 3.5.1.2
+
+    - name: 3.5.1.2 - Ensure iptbles-persistent is not installed with ufw
+      ansible.builtin.package:
+        name: "iptables-persistent"
+        state: absent
+
+    - name: 3.5.1.4 - implement loopback rules (1/3)
+      community.general.ufw:
+        rule: allow
+        direction: in
+        interface: lo
+      notify: Start ufw # 3.5.1.2
+
+    - name: 3.5.1.4 - implment loopback rules (2/3)
+      community.general.ufw:
+        rule: deny
+        direction: in
+        from_ip: 127.0.0.0/8
+      notify: Start ufw # 3.5.1.2
+
+    - name: 3.5.1.4 - implment loopback rules (3/3)
+      community.general.ufw:
+        rule: deny
+        direction: in
+        from_ip: '::1'
+      notify: Start ufw # 3.5.1.2
+
+    - name: Display upcoming skips
+      ansible.builtin.debug:
+        msg: |
+          3.5.1.5 - Configure outbound connections must be handled locally
+          3.5.1.6 - Ensure firewall rules exist for all open ports must be handled locally" - "3.4.1.7 - Ensure ufw default deny firewall policy"
+
+
+# Section 4 - Logging and Auditing
+
+- name: 4.1.1 - Configure Auditd
+  tags:
+    - 4.1.1
+  when: enable_audit is defined and enable_audit
+  block:
+    - name: 4.1.1.1 - Install Audit
+      ansible.builtin.package:
+        name:
+          - auditd
+          - audispd-plugins
+        state: present
+      tags:
+        - 4.1.1.1
+
+    - name: 4.1.1.2 - Enable auditd service
+      ansible.builtin.service:
+        name: auditd
+        enabled: true
+        state: started
+      tags:
+        - 4.1.1.2
+
+    # - name: 4.1.1.3 - Ensure auditing for processes that start prior to auditd
+    # # We check here because we don't know what position the audit=1 is in
+    # # order to simply do the replace, so we are instead looking for the match in the file first.
+    # # If it doesn't exist, then we can just insert it
+    #   ansible.builtin.lineinfile:
+    #     path: /etc/default/grub
+    #     regexp: '^\s*GRUB_CMDLINE_LINUX.*audit=1'
+    #     state: absent
+    #   check_mode: true
+    #   changed_when: false
+    #   register: audit_exist
+    #   failed_when: false
+    #   tags:
+    #     - 4.1.1.3
+    #
+    # # use the replace module to add it to grub bootloader and then notify
+    # #  grub to rebuild
+    # - name: 4.1.1.3 - enable audit service in grub
+    #   ansible.builtin.replace:
+    #     path: /etc/default/grub
+    #     regexp: '^GRUB_CMDLINE_LINUX="'
+    #     replace: 'GRUB_CMDLINE_LINUX="audit=1 '
+    #   notify: Rebuild ubuntu-grub
+    #   when: not audit_exist.found
+    #   tags:
+    #     - 4.1.1.3
+    #
+    # - name: 4.1.1.4 - Ensure audit_backlog_limit is sufficient, check if limit exists
+    #   ansible.builtin.lineinfile:
+    #     path: /etc/default/grub
+    #     regexp: '^\s*GRUB_CMDLINE_LINUX.*audit_backlog_limit'
+    #     state: absent
+    #   check_mode: true
+    #   changed_when: false
+    #   register: audit_backlog_exist
+    #   failed_when: false
+    #   tags:
+    #     - 4.1.1.4
+    #
+    # - name: 4.1.1.4 - Ensure audit_backlog_limit is sufficient, add audit_backlog_limit to grub
+    #   ansible.builtin.replace:
+    #     dest: /etc/default/grub
+    #     regexp: '^\s*GRUB_CMDLINE_LINUX="'
+    #     replace: 'GRUB_CMDLINE_LINUX="audit_backlog_limit={{ audit_backlog_limit }} '
+    #   notify: Rebuild ubuntu-grub
+    #   when: not audit_backlog_exist.found
+    #   tags:
+    #     - 4.1.1.4
+    #
+    # - name: 4.1.1.4 - Ensure audit_backlog_limit is sufficient, update limit if it already exists (check)
+    #   ansible.builtin.lineinfile:
+    #     dest: /etc/default/grub
+    #     regexp: '^\s*GRUB_CMDLINE_LINUX=.*{{ audit_backlog_limit }}'
+    #     state: absent
+    #   check_mode: true
+    #   changed_when: false
+    #   register: our_limit
+    #   when: audit_backlog_exist.found
+    #   tags:
+    #     - 4.1.1.4
+    #
+    # - name: 4.1.1.4 - Ensure audit_backlog_limit is sufficient, update limit if it already exists (fix)
+    #   ansible.builtin.replace:
+    #     dest: /etc/default/grub
+    #     regexp: 'audit_backlog_limit=[\S]*'
+    #     replace: 'audit_backlog_limit={{ audit_backlog_limit }}'
+    #   notify: Rebuild ubuntu-grub
+    #   when: audit_backlog_exist.found and not our_limit.found
+    #   tags:
+    #     - 4.1.1.4
+
+    # The replace module here is looking through file and make replacements of partial lines
+    - name: 4.1.1.[1-2] - Configure audit log storage size
+      ansible.builtin.replace:
+        path: /etc/audit/auditd.conf
+        regexp: "{{ item.find }}"
+        replace: "{{ item.replace }}"
+      loop:
+        - {find: '^max_log_file\s+=\s+[^{{ log_file_size }}]', replace: 'max_log_file = {{ log_file_size }}'} # 4.1.2.1
+        - {find: '^max_log_file_action\s+=\s+((?!keep_logs).)*$', replace: 'max_log_file_action = keep_logs'} # 4.1.2.2
+        - {find: '^space_left_action\s+=\s+((?!email).)*$', replace: 'space_left_action = email'} # 4.1.2.2
+        - {find: '^action_mail_acct\s+=\s+((?!root).)*$', replace: 'action_mail_acct = root'} # 4.1.2.2
+        - {find: '^admin_space_left_action\s+=\s+((?!suspend).)*$', replace: 'admin_space_left_action = suspend'} # 4.1.2.2
+      notify: Restart auditd
+      tags:
+        - 4.1.2.1
+        - 4.1.2.2
+        - 4.1.2.3
+
+    # For the next several checks, each one is in their own file, so we are using
+    #  the copy module to place each file independently and then motifying
+    #  a restart of auditd if anything changes.
+
+    # cis-security versions before 1.5.0 did not enumerate the files, so the old files
+    #  need to be removed to make way for the new versions
+    - name: 4.1.3 - Remove old rules files that were not in correct order (pre v1.5.0)
+      ansible.builtin.file:
+        path: "/etc/audit/rules.d/{{ item }}"
+        state: absent
+      tags:
+        - 4.1.3
+      loop:
+        - sudolog.rules
+        - sudoers.rules
+        - user_emulation.rules
+        - datetime.rules
+        - network.rules
+        - file-system-mounts.rules
+        - bad-file-access.rules
+        - user-group-info.rules
+        - dac.rules
+        - sessions.rules
+        - delete.rules
+        - login.rules
+        - MAC-policy.rules
+        - chcon.rules
+        - setfacl.rules
+        - chacl.rules
+        - usermod.rules
+        - modules.rules
+
+    - name: 4.1.3 - Remove default rule that comes with package
+      ansible.builtin.file:
+        path: "/etc/audit/rules.d/audit.rules"
+        state: absent
+      notify: Restart auditd
+      tags:
+        - 4.1.3
+
+    # This isn't the best way to do this since users can modify the line and it will
+    #  break this control check. It needs to be re-evaluated.
+    - name: 4.1.3.[1,3] - Ensure changes to sudoers is collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-sudolog.rules
+        src: audit_rules/sudolog.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.1
+        - 4.1.3.3
+
+    - name: 4.1.3.4 Ensure to collect events that modify date/time
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-datetime.rules
+        src: audit_rules/datetime.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.4
+
+    - name: 4.1.3.5 - Ensure modifications to network environment are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-network.rules
+        src: audit_rules/network.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.5
+
+    # Control 4.1.3.6 - Ensure use of privileged commands is collected, is machine dependent
+    # skipping
+
+    - name: 4.1.3.7 - Ensure unsuccessful unauthorized file access attempts are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-bad-file-access.rules
+        src: audit_rules/bad-file-access.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.7
+
+    - name: 4.1.3.8 - Ensure events that modify user/group information are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-user-group-info.rules
+        src: audit_rules/user-group-info.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.8
+
+    # For the next several checks, each one is in their own file, so we are using
+    #  the copy module to place each file independently and then motifying
+    #  a restart of auditd if anything changes.
+
+
+    - name: 4.1.3.9 - Ensure modifications to discretionary access controls are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-dac.rules
+        src: audit_rules/dac.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.9
+
+    - name: 4.1.3.10 - Ensure successful file system mounts are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-file-system-mounts.rules
+        src: audit_rules/file-system-mounts.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.10
+
+    - name: 4.1.3.11 - Ensure session initiation information is collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-sessions.rules
+        src: audit_rules/sessions.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.11
+
+    - name: 4.1.3.12 - Ensure system logins are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-login.rules
+        src: audit_rules/login.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.12
+
+    - name: 4.1.3.13 - Ensure file deletion events by users are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-delete.rules
+        src: audit_rules/delete.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.13
+
+    - name: 4.1.3.14 - Ensure modifications to Mandatory Access Controls are collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-MAC-policy.rules
+        src: audit_rules/MAC-policy.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.14
+
+    - name: 4.1.3.15 - Ensure successful and unsuccessful attempts to use the chcon command are recorded
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-chcon.rules
+        src: audit_rules/chcon.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.15
+
+    - name: 4.1.3.16 - Ensure successful and unsuccessful attempts to use the setfacl command are recorded
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-setfacl.rules
+        src: audit_rules/setfacl.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.16
+
+    - name: 4.1.3.17 - Ensure successful and unsuccessful attempts to use the chacl command are recorded
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-chacl.rules
+        src: audit_rules/chacl.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.17
+
+    - name: 4.1.3.18 - Ensure successful and unsuccessful attempts to use the usermod command are recorded
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-usermod.rules
+        src: audit_rules/usermod.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.18
+
+    - name: 4.1.3.19 - Ensure kernel module loading and unloading is collected
+      ansible.builtin.template:
+        dest: /etc/audit/rules.d/00-modules.rules
+        src: audit_rules/modules.rules
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.19
+
+    - name: 4.1.3.20 - Ensure audit configuration is immutable
+      ansible.builtin.copy:
+        dest: /etc/audit/rules.d/99-finalize.rules
+        content: |
+          -e 2
+        owner: root
+        group: root
+        mode: 0600
+      notify: Restart auditd
+      tags:
+        - 4.1.3.20
+
+    # 4.1.3.21 - Ensure running and on disk configuration is the same requires manual review - skipping
+
+    - name: 4.1.4.[1-2,4-7] - Set auditd files to mode 600, user root, group root
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        owner: root
+        group: root
+        mode: 0600
+        force: false
+        content: ""
+      loop:
+        - "/etc/audit/auditd.conf"
+        - "{{ log_file }}"
+      tags:
+        - 4.1.4.1
+        - 4.1.4.2
+        - 4.1.4.3
+        - 4.1.4.4
+        - 4.1.4.5
+        - 4.1.4.6
+        - 4.1.4.7
+
+    - name: 4.1.4.[8-10] - Ensure audit tools are 0755 or less permissive
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: root
+        group: root
+        mode: 'go-w'
+      loop:
+        - "/sbin/auditctl"
+        - "/sbin/aureport"
+        - "/sbin/ausearch"
+        - "/sbin/autrace"
+        - "/sbin/auditd"
+        - "/sbin/augenrules"
+      tags:
+        - 4.1.4.8
+        - 4.1.4.9
+        - 4.1.4.10
+
+    - name: 4.1.4.11 Ensure cryptographic mechanisms are used to protect the integrity of audit tools
+      ansible.builtin.blockinfile:
+        path: /etc/aide.conf.d/crypt.conf
+        owner: root
+        group: root
+        create: true
+        mode: 0644
+        block: |
+          # Audit Tools
+          /sbin/auditctl p+i+n+u+g+s+b+acl+xattrs+sha512
+          /sbin/auditd p+i+n+u+g+s+b+acl+xattrs+sha512
+          /sbin/ausearch p+i+n+u+g+s+b+acl+xattrs+sha512
+          /sbin/aureport p+i+n+u+g+s+b+acl+xattrs+sha512
+          /sbin/autrace p+i+n+u+g+s+b+acl+xattrs+sha512
+          /sbin/augenrules p+i+n+u+g+s+b+acl+xattrs+sha512
+      tags:
+        - 4.1.4.11
+
+- name: 5.1 - Configure time-based job schedulers
+  tags:
+    - 5.1.0
+  block:
+    - name: 5.1.0 - Create the cron/at allow files
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        content: ""
+        force: false
+        owner: root
+        group: root
+        mode: 0644
+      with_items:
+        - /etc/cron.allow
+        - /etc/at.allow
+
+    - name: 5.1.2 - Ensure permissions on /etc/crontab
+      ansible.builtin.file:
+        path: /etc/crontab
+        owner: root
+        group: root
+        mode: 0600
+      tags:
+        - 5.1.2
+
+    - name: 5.1.[3-7] - Ensure permissions on crontab directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: root
+        group: root
+        mode: 0700
+        state: directory
+      loop:
+        - /etc/cron.hourly
+        - /etc/cron.daily
+        - /etc/cron.weekly
+        - /etc/cron.monthly
+        - /etc/cron.d
+      tags:
+        - 5.1.3
+        - 5.1.4
+        - 5.1.5
+        - 5.1.6
+        - 5.1.7
+
+    - name: 5.1.8 - Ensure cron is restricted to authorized users - Create file
+      ansible.builtin.file:
+        path: /etc/cron.allow
+        owner: root
+        group: root
+        mode: 0600
+        state: file
+      when: cron_allow and cron_allow | length > 0
+      tags:
+        - 5.1.8
+
+    - name: 5.1.8 - Ensure cron is restricted to authorized users
+      ansible.builtin.lineinfile:
+        path: /etc/cron.allow
+        regexp: ^{{ item.0 }}
+        line: "{{ item.0 }}"
+        owner: root
+        group: root
+        mode: 0600
+        create: true
+      loop:
+        - "{{ cron_allow }}"
+      when: cron_allow and cron_allow | length > 0
+      tags:
+        - 5.1.8
+
+    - name: 5.1.9 - Ensure at is restricted to authorized users - Create file
+      ansible.builtin.file:
+        path: /etc/at.allow
+        owner: root
+        group: root
+        mode: 0600
+        state: file
+      when: at_allow and at_allow | length > 0
+      tags:
+        - 5.1.9
+
+    - name: 5.1.9 - Ensure at is restricted to authorized users
+      ansible.builtin.lineinfile:
+        path: /etc/at.allow
+        regexp: ^{{ item.0 }}
+        line: "{{ item.0 }}"
+        owner: root
+        group: root
+        mode: 0600
+        create: true
+      loop:
+        - "{{ at_allow }}"
+      when: at_allow and at_allow | length > 0
+      tags:
+        - 5.1.9
+
+    - name: 5.1.1 - Ensure cron daemon is enabled an activated
+      ansible.builtin.systemd:
+        name: cron
+        enabled: true
+        state: started
+        masked: false
+      tags:
+        - 5.1.1
+
+- name: 5.1.1 - Configure journald
+  when: log_service and log_service == "journald"
+  tags:
+    - 5.1.1
+  block:
+    - name: 5.1.1.1.1 - Ensure systemd-journald-remote is installed
+      ansible.builtin.package:
+        name: systemd-journal-remote
+        state: present
+      tags:
+        - 5.1.1.1.1
+
+    # Control 5.1.1.1.2 is machine dependent, skipping
+    # Control 5.1.1.1.3 required 5.1.1.1.2 be configured prior. skipping
+
+    - name: 5.1.1.1.4 - Ensure systemd-jornal-remote.socket is masked
+      ansible.builtin.systemd:
+        name: systemd-journal-remote.socket
+        enabled: false
+        masked: true
+      tags:
+        - 5.1.1.1.4
+
+    - name: 5.1.1.2 Ensure systemd-journal-remote.socket service is masked
+      ansible.builtin.systemd:
+        name: systemd-journal-remote.service
+        enabled: false
+        masked: true
+      tags:
+        - 5.1.1.2
+
+    - name: 5.1.1.3 - Ensure journald compresses large files
+      ansible.builtin.lineinfile:
+        dest: /etc/systemd/journald.conf
+        regexp: "^Compress=((?!yes).)*$"
+        line: "Compress=yes"
+        insertafter: "^#Compress="
+      notify: Restart journald
+      tags:
+        - 5.1.1.3
+
+    - name: 5.1.1.4 - Ensure journald writes to peristent disk
+      ansible.builtin.lineinfile:
+        dest: /etc/systemd/journald.conf
+        regexp: "^Storage=((?!persistent).)*$"
+        line: "Storage=persistent"
+        insertafter: "^#Storage="
+      notify: Restart journald
+      tags:
+        - 5.1.1.4
+
+    - name: 5.1.1.5 - Ensure journald is not configured to send logs to rsyslog IF rsyslog is sending logs to a log host
+      ansible.builtin.lineinfile:
+        dest: /etc/systemd/journald.conf
+        regexp: "^ForwardToSyslog=((?!yes).)*$"
+        state: absent
+      tags:
+        - 5.1.1.5
+
+    # Control 5.1.1.6, configure log rotation is machine specific, skipping
+    #   TODO
+    # Control 5.1.1.7, Ensure journald default file permissions configured, is machine dependant, skipping
+
+
+    - name: 5.1.1.1.3 - Ensure journald service is enabled
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: started
+        masked: false
+        enabled: true
+      tags:
+        - 5.1.1.1.3
+
+- name: 5.1.2 - Configure rsyslog
+  when: log_service and log_service == "rsyslog"
+  tags:
+    - 5.1.2
+  block:
+    - name: 5.1.2.3 - Configure journald to forward logs to rsyslog
+      tags:
+        - 5.1.2.3
+      block:
+        - name: 5.1.2.3 - Find any rsyslog files where all logs are being forwarded to a loghost
+          ansible.builtin.shell: /usr/bin/grep -l -s "^*.*[^I][^I]*@" /etc/rsyslog.conf /etc/rsyslog.d/*.conf
+          register: rsyslog_forward_out
+          changed_when: false
+          failed_when: rsyslog_forward_out.rc == "2"
+          check_mode: false
+
+        - name: 5.1.2.3 - Forward journald logs to rsyslog IF rsyslog is sending logs to a log host
+          ansible.builtin.lineinfile:
+            dest: /etc/systemd/journald.conf
+            regexp: "^ForwardToSyslog=((?!yes).)*$"
+            line: "ForwardToSyslog=yes"
+            insertafter: "#ForwardToSyslog=no"
+          when: rsyslog_forward_out.stdout
+
+    - name: 5.1.2.4 - Ensure rsyslog default file permissions are configured
+      ansible.builtin.lineinfile:
+        path: /etc/rsyslog.conf
+        regexp: '^\$FileCreateMode\s+0640'
+        line: "$FileCreateMode 0640"
+        create: true
+        owner: root
+        group: root
+        mode: 0644
+        state: present
+      notify: Restart rsyslog
+      tags:
+        - 5.1.2.4
+
+    - name: 5.1.2.5 - Ensure logging is configured in rsyslog
+      ansible.builtin.copy:
+        src: "{{ rsyslog_file }}"
+        dest: "/etc/rsyslog.d/{{ rsyslog_file }}"
+        owner: root
+        group: root
+        mode: 0640
+      when: rsyslog_file is defined and rsyslog_file | length > 0
+      tags:
+        - 5.1.2.5
+
+    - name: 5.1.2.1 - Ensure rsyslog is installed
+      ansible.builtin.package:
+        name: rsyslog
+        state: present
+      tags:
+        - 5.1.2.1
+
+    - name: 5.1.2.2 - Enable Rsyslog
+      ansible.builtin.service:
+        name: rsyslog
+        enabled: true
+      tags:
+        - 5.1.2.2
+
+    # Control 5.1.2.6 - Ensure rsyslog is configured to send logs to a remote log host is machine dependent
+    # skipping
+
+    - name: 5.1.2.7 - Ensure remote rsyslog messages are only acepted on designated log hosts
+      tags:
+        - 5.1.2.7
+      block:
+        - name: 5.1.2.7 - Find all rsyslog conf files in /etc/rsyslog.d
+          ansible.builtin.find:
+            paths: "/etc/rsyslog.d"
+            patterns: "*.conf"
+          register: rsyslog_module_found
+
+        - name: 5.1.2.7 - Disable imtcp loading module on non log hosts (rsyslog.d conf files)
+          ansible.builtin.lineinfile:
+            dest: "{{ item.path }}"
+            regexp: '^\$ModLoad\s+imtcp'
+            state: absent
+          loop: "{{ rsyslog_module_found.files }}"
+          when: log_host is defined and not log_host
+
+        - name: 5.1.2.7 - Disable imtcp loading module on non log hosts (main rsyslog conf file)
+          ansible.builtin.lineinfile:
+            dest: "/etc/rsyslog.conf"
+            regexp: '^\$ModLoad\s+imtcp'
+            state: absent
+          when: log_host is defined and not log_host
+
+        - name: 5.1.2.7 - Disable TCP port listening on non log hosts (rsylog.d conf files)
+          ansible.builtin.lineinfile:
+            dest: "{{ item.path }}"
+            regexp: '^\$InputTCPServerRun'
+            state: absent
+          loop: "{{ rsyslog_module_found.files }}"
+          when: log_host is defined and not log_host
+
+        - name: 5.1.2.7 - Disable TCP port listening on non log hosts (main rsyslog conf file)
+          ansible.builtin.lineinfile:
+            dest: "/etc/rsyslog.conf"
+            regexp: '^\$InputTCPServerRun'
+            state: absent
+          when: log_host is defined and not log_host
+
+        - name: 5.1.2.7 - Enable loading of imtcp module on log hosts
+          ansible.builtin.lineinfile:
+            dest: /etc/rsyslog.d/CIS.conf
+            regexp: '^\$ModLoad\s+imtcp'
+            line: "$ModLoad imtcp"
+            create: true
+            owner: root
+            group: root
+            mode: 0644
+          when: log_host is defined and log_host
+
+        - name: 5.1.2.7 - Enable TCP Port listening on port {{ log_port }}
+          ansible.builtin.lineinfile:
+            dest: /etc/rsyslog.d/CIS.conf
+            regexp: '^\$InputTCPServerRun {{ log_port }}'
+            line: "$InputTCPServerRun {{ log_port }}"
+            create: true
+            owner: root
+            group: root
+            mode: 0644
+          when: log_host is defined and log_host
+
+        # Control 5.1.2.6 - Ensure rsyslog is configured to send logs to a remote log host is machine dependent
+        # skipping
+
+        - name: 5.1.2.7 - Ensure remote rsyslog messages are only acepted on designated log hosts
+          tags:
+            - 5.1.2.7
+          block:
+            - name: 5.1.2.7 - Find all rsyslog conf files in /etc/rsyslog.d
+              ansible.builtin.find:
+                paths: "/etc/rsyslog.d"
+                patterns: "*.conf"
+              register: rsyslog_module_found
+
+            - name: 5.1.2.7 - Disable imtcp loading module on non log hosts (rsyslog.d conf files)
+              ansible.builtin.lineinfile:
+                dest: "{{ item.path }}"
+                regexp: '^\$ModLoad\s+imtcp'
+                state: absent
+              loop: "{{ rsyslog_module_found.files }}"
+              when: log_host is defined and not log_host
+
+            - name: 5.1.2.7 - Disable imtcp loading module on non log hosts (main rsyslog conf file)
+              ansible.builtin.lineinfile:
+                dest: "/etc/rsyslog.conf"
+                regexp: '^\$ModLoad\s+imtcp'
+                state: absent
+              when: log_host is defined and not log_host
+
+            - name: 5.1.2.7 - Disable TCP port listening on non log hosts (rsylog.d conf files)
+              ansible.builtin.lineinfile:
+                dest: "{{ item.path }}"
+                regexp: '^\$InputTCPServerRun'
+                state: absent
+              loop: "{{ rsyslog_module_found.files }}"
+              when: log_host is defined and not log_host
+
+            - name: 5.1.2.7 - Disable TCP port listening on non log hosts (main rsyslog conf file)
+              ansible.builtin.lineinfile:
+                dest: "/etc/rsyslog.conf"
+                regexp: '^\$InputTCPServerRun'
+                state: absent
+              when: log_host is defined and not log_host
+
+            - name: 5.1.2.7 - Enable loading of imtcp module on log hosts
+              ansible.builtin.lineinfile:
+                dest: /etc/rsyslog.d/CIS.conf
+                regexp: '^\$ModLoad\s+imtcp'
+                line: "$ModLoad imtcp"
+                create: true
+                owner: root
+                group: root
+                mode: 0644
+              when: log_host is defined and log_host
+
+            - name: 5.1.2.7 - Enable TCP Port listening on port {{ log_port }}
+              ansible.builtin.lineinfile:
+                dest: /etc/rsyslog.d/CIS.conf
+                regexp: '^\$InputTCPServerRun {{ log_port }}'
+                line: "$InputTCPServerRun {{ log_port }}"
+                create: true
+                owner: root
+                group: root
+                mode: 0644
+              when: log_host is defined and log_host
+
