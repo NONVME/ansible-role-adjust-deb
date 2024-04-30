@@ -1076,3 +1076,294 @@
                 mode: 0644
               when: log_host is defined and log_host
 
+# Section 6 - System Maintenance
+
+# Control 6.1.1 - Audit system file permissions, the report is time consuming and requires manual review
+# skipping
+
+- name: 6.1.[1,3] - Ensure permissions on /etc/passwd /etc/group /etc/shells
+  ansible.builtin.file:
+    path: /etc/{{ item }}
+    owner: root
+    group: root
+    mode: 0644
+  loop:
+    - passwd
+    - group
+  tags:
+    - 6.1.1
+    - 6.1.3
+
+- name: 6.1.[5,7] - Ensure permissions on /etc/shadow /etc/gshadow
+  ansible.builtin.file:
+    path: /etc/{{ item }}
+    owner: root
+    group: root
+    mode: 0000
+  loop:
+    - shadow
+    - gshadow
+  tags:
+    - 6.1.5
+    - 6.1.7
+
+- name: 6.1.[2,4,6,8] - Ensure permissions on /etc/passwd- /etc/[g]shadow- /etc/group-
+  ansible.builtin.file:
+    path: /etc/{{ item }}
+    owner: root
+    group: root
+    mode: 0000
+  with_items:
+    - passwd-
+    - shadow-
+    - group-
+    - gshadow-
+  tags:
+    - 6.1.2
+    - 6.1.4
+    - 6.1.6
+    - 6.1.8
+
+# Control 6.1.9, Ensure no world writable files exist, is system dependent so we are only
+# providing a list to the user here.
+- name: 6.1.9 - Ensure no world writable files exist
+  tags:
+    - 6.1.9
+  block:
+    - name: 6.1.9 - Find any world writiable files
+      ansible.builtin.shell: "/bin/df --local -P | /usr/bin/awk {' if (NR!=1) print $6'} | /usr/bin/xargs -I '{}' find '{}' -xdev -type f -perm -0002"
+      register: ww_files
+      changed_when: false
+      check_mode: false
+
+    - name: 6.1.9 - Print any world writable files found
+      ansible.builtin.debug:
+        msg: "World writiable files found: {{ ww_files.stdout }}"
+      changed_when: true
+      when: ww_files.stdout
+
+# Control 6.1.10, Ensure no unowned files exist, is system dependent so we are only
+# providing a list to the user here.
+- name: 6.1.10 - Ensure no unowned files exist
+  tags:
+    - 6.1.10
+  block:
+    - name: 6.1.10 - Find any unowned files
+      ansible.builtin.shell: "/bin/df --local -P | /usr/bin/awk {' if (NR!=1) print $6'} | /usr/bin/xargs -I '{}' find '{}' -xdev -nouser"
+      register: uo_files
+      changed_when: false
+
+    - name: 6.1.10 - Print any unowned files found
+      ansible.builtin.debug:
+        msg: "unowned files found: {{ uo_files.stdout }}"
+      changed_when: true
+      when: uo_files.stdout
+
+# Control 6.1.10, Enscure no ungrouped files exist, is system dependent so we are only
+# providing a list to the user here.
+- name: 6.1.11 - Ensure no ungrouped files exist
+  tags:
+    - 6.1.11
+  block:
+    - name: 6.1.11 - Find any ungrouped files
+      ansible.builtin.shell: "/bin/df --local -P | /usr/bin/awk {' if (NR!=1) print $6'} | /usr/bin/xargs -I '{}' find '{}' -xdev -nogroup"
+      register: ug_files
+      changed_when: false
+      check_mode: false
+
+    - name: 6.1.11 - Print any ungrouped files found
+      ansible.builtin.debug:
+        msg: "ungrouped files found: {{ uo_files.stdout }}"
+      changed_when: true
+      when: ug_files.stdout
+
+
+# Control 6.1.12, Audit SUID executables, is a verification and is system dependent.
+# Not implementing because it will always return some SUID files
+# Manually review the control
+
+# Control 6.1.13, Audit SGID executables, is a verification and is system dependent.
+# Not implementing because it will always return some SUID files
+# Manually review the control
+
+- name: 6.2.1 - Ensure accounts in /etc/passwd use shadowed passwords
+  tags:
+    - 6.2.1
+  block:
+    - name: 6.2.1 - Check to see if there are any accounts with empty passwords
+      ansible.builtin.shell: "/bin/cat /etc/shadow | awk -F: '($2 == \"\" ) { print $1 }'"
+      changed_when: false
+      register: empty_passwords
+      check_mode: false
+
+    - name: 6.2.1 - Report the named users to the report
+      ansible.builtin.debug:
+        msg: "The user {{ item }} has an empty password"
+      when: empty_passwords.stdout
+      changed_when: true
+      loop: "{{ empty_passwords.stdout_lines }}"
+
+- name: 6.2.2 - /etc/shadow password fields are not empty
+  ansible.builtin.command: "awk -F: '($2 == \"\")' {{ item }}"
+  loop:
+    - /etc/shadow
+  changed_when: false
+  tags:
+    - 6.2.2
+
+- name: 6.2.3 - Report on groups in /etc/passwd  with a GID not in /etc/group
+  tags:
+    - 6.2.3
+  block:
+    - name: 6.2.3 - Use script to pull the list of groups
+      ansible.builtin.script:
+        cmd: files/undefined_groups.sh
+      register: undefined_groups
+      changed_when: false
+      check_mode: false
+
+    - name: 6.2.3 - Report to user any unreferenced groups
+      ansible.builtin.debug:
+        msg: "{{ undefined_groups.stdout_lines }}"
+      changed_when: true
+      when: undefined_groups.stdout
+
+- name: 6.2.4 - Report if shadow group exists in /etc/group
+  block:
+    - name: 6.2.4 - Determine if the shadow group exists in /etc/group
+      ansible.builtin.command: /bin/grep "^shadow:" /etc/group
+      register: shadow_out
+      changed_when: false
+      failed_when: shadow_out.rc == "2"
+
+    - name: 6.2.4 - Print report of shadow in /etc/group to user
+      ansible.builtin.debug:
+        msg: "Shadow group exists in /etc/group. Remove"
+      changed_when: true
+      when: shadow_out.stdout
+
+- name: 6.2.5 - Ensure no duplicate UIDs exist
+  tags:
+    - 6.2.5
+  block:
+    - name: 6.2.5 - find accounts with UID of 0
+      ansible.builtin.shell: "/usr/bin/cat /etc/passwd | awk -F: '($3 == 0) { print $1 }'"
+      register: rootuid
+      changed_when: rootuid.rc >= 2
+      check_mode: false
+
+    - name: 6.2.5 - Use script to pull the list of duplicate UIDs
+      ansible.builtin.script:
+        cmd: files/duplicate_uids.sh
+      register: duplicate_uids
+      changed_when: false
+      check_mode: false
+
+    - name: 6.2.5 - Print report of duplicated UIDs to user
+      ansible.builtin.debug:
+        msg: "{{ duplicate_uids.stdout_lines }}"
+      changed_when: true
+      when: duplicate_uids.stdout
+
+- name: 6.2.6 - Report on duplicate GIDs in /etc/group
+  tags:
+    - 6.2.6
+  block:
+    - name: 6.2.6 - Use script to pull the list of duplicate GIDs
+      ansible.builtin.script:
+        cmd: files/duplicate_guids.sh
+      register: duplicate_guids
+      changed_when: false
+      check_mode: false
+
+    - name: 6.2.6 - Print report of duplcate GIDs to user
+      ansible.builtin.debug:
+        msg: "{{ duplicate_guids.stdout_lines }}"
+      changed_when: true
+      when: duplicate_guids.stdout
+
+- name: 6.2.7 - Report on duplicate users in /etc/passwd
+  tags:
+    - 6.2.7
+  block:
+    - name: 6.2.7 - Use script to pull the list of users
+      ansible.builtin.script:
+        cmd: files/duplicate_users.sh
+      register: duplicate_users
+      changed_when: false
+      check_mode: false
+
+    - name: 6.2.7 - Print report of duplicate users to user
+      ansible.builtin.debug:
+        msg: "{{ duplicate_users.stdout_lines }}"
+      changed_when: true
+      when: duplicate_users.stdout
+
+- name: 6.2.8 - Report on duplicate groups in /etc/group
+  tags:
+    - 6.2.8
+  block:
+    - name: 6.2.8 - Use script to pull the list of groups
+      ansible.builtin.script:
+        cmd: files/duplicate_groups.sh
+      register: duplicate_groups
+      changed_when: false
+      check_mode: false
+
+    - name: 6.2.8 - Print report of duplicate groups to user
+      ansible.builtin.debug:
+        msg: "{{ duplicate_groups.stdout_lines }}"
+      changed_when: true
+      when: duplicate_groups.stdout
+
+- name: 6.2.9 - Ensure root PATH integrity
+  tags:
+    - 6.2.9
+  block:
+    - name: 6.2.9 - Run script on path variable
+      ansible.builtin.script: files/path_check.sh
+      changed_when: false
+      register: path_check
+      check_mode: false
+
+    - name: 6.2.9 - Print report to user
+      ansible.builtin.debug:
+        msg:
+          - "Note, Ansible runs this as SUDO with the ansible user's PATH variable. The script may not print issues"
+          - "that exist in root's path because of this. It should be run as root on the target machine manually."
+          - " {{ path_check.stdout }}"
+      when: path_check.stdout
+
+- name: 6.2.10 - Ensure root is the only UID 0 account
+  tags:
+    - 6.2.10
+  block:
+    - name: 6.2.10 - find accounts with UID of 0
+      ansible.builtin.shell: "/usr/bin/cat /etc/passwd | awk -F: '($3 == 0) { print $1 }'"
+      register: rootuid
+      changed_when: rootuid.rc == 2
+      check_mode: false
+
+    - name: 6.2.10 - Report on mulitple accounts with UID of 0
+      ansible.builtin.debug:
+        msg:
+          - "Accounts with UID zero in addition to root"
+          - " {{ rootuid.stdout_lines }}"
+      changed_when: true
+      when: rootuid.stdout != 'root'
+
+- name: 6.2.10 - Report on users that do not have a home directory
+  tags:
+    - 6.2.10
+  block:
+    - name: 6.2.10 - Use script to find the users
+      ansible.builtin.script:
+        cmd: files/non_existant_homedirs.sh
+      register: nohomedir
+      changed_when: false
+
+    - name: 6.2.10 - Print report of users that do not have a home directory
+      ansible.builtin.debug:
+        msg: "{{ nohomedir.stdout_lines }}"
+      changed_when: true
+      when: nohomedir.stdout
