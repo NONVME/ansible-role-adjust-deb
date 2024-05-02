@@ -1,25 +1,4 @@
 ---
-apt_install_packages:
-  - apt-transport-https
-  - ca-certificates
-  - curl
-  - gdisk
-  - htop
-  - iputils-ping
-  - net-tools
-  - smartmontools
-  - socat
-  - unattended-upgrades
-  - tmux
-  - unzip
-  - vim
-  - python3
-  - python3-pip
-  - jq
-  - bat
-  - dircolors
-  - ufw
-
 apt_remove_packages:
   - apparmor
   - apport
@@ -44,14 +23,60 @@ apt_remove_packages:
   - ubuntu-advantage-tools
   - vim.tiny
 
+apt_install_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gdisk
+  - htop
+  - iputils-ping
+  - net-tools
+  - smartmontools
+  - socat
+  - unattended-upgrades
+  - tmux
+  - unzip
+  - vim
+  - python3
+  - python3-pip
+  - jq
+  - bat
+  - coreutils
+  - ufw
+  - lnav
+  - dnsutils
+
 
 security_ssh_port: 22
 security_fail2ban_enabled: true
 security_fail2ban_custom_configuration_template: "jail.local.j2"
 
+# Defaults file for cis-security see variable descriptions in security-rollup/README.md
+# Services
+service_bluetooth: false        # Linux: Ubuntu 22 only. Set to 'false' to disable bluetooth service
+enable_audit: true              # Linux: Enable auditing of processes and filesystem changes
+
+# Logging services variables
+log_service: "journald"         # journald or rsyslog for logging. Choose one. Currently only implemented in RHEL 8/9!
+log_host: false                 # Linux: Whether this machine will host rsyslog messages for other machines
+log_port: 514                   # Linux: Port to listen to RSYSLOG messages on (if log_host is true)
+log_file: /var/log/audit/auditd.log # Linux: path and location of audit log
+log_file_size: 8                # Linux: log file size. RHEL default is 8MB, control has no default
+rsyslog_file: "rsyslog.conf"    # Linux: Copy file listed for configuring rsyslog
+
+# Sudo Configuration
+sudo_log: "/var/log/sudoers"    # Linux: log file for sudo
+
+# Network security settings
+enable_firewall: "ufw"      # Linux: supported values are firewalld (RHEL), nftables (RHEL, Ubuntu) or iptables (Ubuntu)
 motd_use: true                  # Linux: RHEL 9: set to 'true' to use motd file, 'false' to not use
 motd_file: "banner"             # Linux: File location by default in 'files' directory
 issue_use: true                 # Linux: RHEL 9: set to 'true' to use issue file, 'false' to not use
 issue_file: "issue"             # Linux: File location by default in 'files' directory
 issue_net_use: true             # Linux: RHEL 9: set to 'true' to use issue.net file, 'false' to not use
-issue_net_file: "issue"         # Linux: File location by default in 'files' diretory
+issue_net_file: "issue"         # Linux: File location by default in 'files' directory
+ipv6_disable: true              # Common: Set to true to disable ipv6 support on host
+
+# Cron/at variables
+cron_allow: []                  # Linux: RHEL9, list of users to add to cron.allow
+at_allow: []                  # Linux: RHEL9, list of users to add to at_allow.allow

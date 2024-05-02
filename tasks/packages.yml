@@ -98,6 +98,7 @@
 
 - name: Generate a pkgs report
   delegate_to: localhost
+  become: false
   block:
     - name: Create main directory in ssh space
       ansible.builtin.file:
@@ -111,98 +112,9 @@
 
     - name: Write package list to a file
       copy:
-        dest: "{{ item.ssh.path }} + package_list.txt"
+        dest: "{{ item.ssh.path }}package_list.txt"
         content: "{{ ansible_facts.packages | to_nice_json }}"
+      with_items: "{{ users }}"
+      when: item.username is not search(user_app_postfix + '$')
       tags:
         - always
-
-# The sysctl module will set variables in /etc/sysctl.conf and tell sysctl
-#  to reload them immediately if 'reload' is set to 'yes'.
-- name: 1.5.1 - Ensure address space layout reandomization (ASLR) is enabled
-  ansible.posix.sysctl:
-    name: kernel.randomize_va_space
-    value: "2"
-    reload: true
-    state: present
-    sysctl_set: true
-  tags:
-    - 1.5.1
-
-# Use system package manager to remove the prelink package
-- name: 1.5.2 - Remove prelink package
-  ansible.builtin.package:
-    name: prelink
-    state: absent
-  tags:
-    - 1.5.2
-
-- name: 1.5.3 - Ensure Apport Error Reporting Service is disabled
-  tags:
-    - 1.5.3
-  block:
-    - name: 1.5.3 - Ensure Apport Error Reporting Service is disabled
-      ansible.builtin.systemd:
-        name: apport.service
-        enabled: false
-        state: stopped
-
-    - name: 1.5.3 - Ensure that it does not start again
-      ansible.builtin.lineinfile:
-        dest: "/etc/default/apport"
-        regexp: '^\ *enabled\ *=\ *[^0]\b'
-        line: "enabled=0"
-        state: present
-
-- name: 1.5.4 - Ensure core dumps are restricted
-  tags:
-    - 1.5.4
-  block:
-    # The sysctl module will set variables in /etc/sysctl.conf and tell sysctl
-    #  to reload them immediately if 'reload' is set to 'yes'.
-    - name: 1.5.4 - Ensure core dumps are restricted
-      ansible.posix.sysctl:
-        name: fs.suid_dumpable
-        value: "0"
-        state: present
-        reload: true
-
-# 1.7 Warning Banners
-
-# Use copy module to copy in the appropriate files based on variable and set permissions
-- name: 1.7.1 - Install motd banners
-  ansible.builtin.copy:
-    src: "{{ motd_file }}"
-    dest: /etc/motd
-    owner: root
-    group: root
-    mode: 0644
-  when: motd_use is defined and motd_use
-  tags:
-    - 1.7.1
-    - 1.7.4
-
-# Use copy module to copy in the appropriate files based on variable and set permissions
-- name: 1.7.2 - Install issue banners
-  ansible.builtin.copy:
-    src: "{{ issue_file }}"
-    dest: /etc/issue
-    owner: root
-    group: root
-    mode: 0644
-  when: issue_use is defined and issue_use
-  tags:
-    - 1.7.2
-    - 1.7.5
-
-# Use copy module to copy in the appropriate files based on variable and set permissions
-- name: 1.7.3 - Install issue.net banners
-  ansible.builtin.copy:
-    src: "{{ issue_net_file }}"
-    dest: /etc/issue.net
-    owner: root
-    group: root
-    mode: 0644
-  when: issue_net_use is defined and issue_net_use
-  tags:
-    - 1.7.3
-    - 1.7.6
