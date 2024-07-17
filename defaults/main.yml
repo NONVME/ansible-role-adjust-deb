@@ -36,7 +36,7 @@ apt_install_packages:
   - unattended-upgrades
   - tmux
   - unzip
-  - vim
+  - neovim
   - python3
   - python3-pip
   - jq

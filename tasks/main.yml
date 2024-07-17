@@ -1,19 +1,19 @@
 ---
-# # Packages install
-# - include_tasks: packages.yml
-#   tags:
-#     - packages
+# Packages install
+- include_tasks: packages.yml
+  tags:
+    - packages
 
-# # Everything related to personal work environment
-# - include_tasks: environment.yml
-#   tags:
-#     - environment
-#
-# # Fail2Ban
-# - include_tasks: fail2ban.yml
-#   tags:
-#     - fail2ban
-#   when: security_fail2ban_enabled | bool
+# Everything related to personal work environment
+- include_tasks: environment.yml
+  tags:
+    - environment
+
+# Fail2Ban
+- include_tasks: fail2ban.yml
+  tags:
+    - fail2ban
+  when: security_fail2ban_enabled | bool
 
 # ubuntu-22
 - include_tasks: cis-security-ubuntu-22.yml

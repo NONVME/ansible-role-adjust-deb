@@ -104,7 +104,7 @@
     enabled: true
     state: restarted
 
-- name: Restart ufw
+- name: Enable ufw
   community.general.ufw:
     state: enabled
 
