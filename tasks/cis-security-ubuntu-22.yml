@@ -114,6 +114,142 @@
     - 1.7.3
     - 1.7.6
 
+# 1.8 GDM
+
+# Disable GDM
+- name: 1.8.1 - Remove GDM display manager
+  tags:
+    - 1.8.1
+  block:
+    - name: 1.8.1 - Remove the GNOME display manager
+      ansible.builtin.apt:
+        name: gdm3
+        state: absent
+        purge: true
+      when: "'gdm3' in ansible_facts.packages and not graphical_interface"
+
+# add a banner to the login screen if the graphical_interface variable is set to true
+- name: 1.8.[2-3] Ensure GDM banner set up
+  when: graphical_interface is defined and graphical_interface
+  tags:
+    - 1.8.2
+    - 1.8.3
+    - 1.8.4
+  block:
+    - name: 1.8.[2-4] - Make sure gdm settings files have been created
+      ansible.builtin.file:
+        path: "/etc/dconf/db/gdm.d"
+        owner: root
+        group: root
+        mode: 0755
+        setype: etc_t
+        state: directory
+
+    - name: 1.8.[2-4] - Set up dconf profile for gdm
+      ansible.builtin.blockinfile:
+        path: /etc/dconf/profile/gdm
+        owner: root
+        group: root
+        mode: 0644
+        setype: etc_t
+        create: true
+        block: |
+          user-db:user
+          system-db:gdm
+          file-db:/usr/share/gdm/greeter-dconf-defaults
+
+    - name: 1.8.[2-3] - Create the defaults file and populate group
+      ansible.builtin.blockinfile:
+        path: /etc/dconf/db/gdm.d/01-banner-message
+        owner: root
+        group: root
+        mode: 0644
+        setype: etc_t
+        create: true
+        marker: "# {mark} Ansible Managed login-screen block"
+        block: |
+          [org/gnome/login-screen]
+      tags:
+        - 1.8.2
+        - 1.8.3
+
+    - name: 1.8.2 - Enable login screen for gdm
+      ansible.builtin.blockinfile:
+        # Add our required pieces to the greeter defaults file
+        path: /etc/dconf/db/gdm.d/01-banner-message
+        owner: root
+        group: root
+        mode: 0644
+        setype: etc_t
+        insertafter: "[org/gnome/login-screen]"
+        marker: "# {mark} Ansible Managed banner-message"
+        block: |
+          banner-message-enable=true
+          banner-message-text='Authorized users only. All activity may be monitored and reported.'
+      tags:
+        - 1.8.2
+
+    - name: 1.8.3 Ensure GDM disable-user list is enabled
+      ansible.builtin.blockinfile:
+        path: /etc/dconf/db/gdm.d/01-banner-message
+        owner: root
+        group: root
+        mode: 0644
+        setype: etc_t
+        insertafter: "[org/gnome/login-screen]"
+        marker: "# {mark} Ansible Managed disable-user-list"
+        block: |
+          disable-user-list=true
+      tags:
+        - 1.8.3
+
+    - name: 1.8.4 Set gdm timeouts
+      ansible.builtin.blockinfile:
+        path: /etc/dconf/db/gdm.d/00-screensaver
+        owner: root
+        group: root
+        mode: 0644
+        setype: etc_t
+        create: true
+        marker: "# {mark} Ansible Managed Timeouts"
+        block: |
+          # Specify the dconf path
+          [org/gnome/desktop/session]
+
+          # Number of seconds of inactivity before the screen goes blank
+          # Set to 0 seconds if you want to deactivate the screensaver.
+          idle-delay=uint32 {{ idle_delay }}
+          # Specify the dconf path
+          [org/gnome/desktop/screensaver]
+          # Number of seconds after the screen is blank before locking the screen
+          lock-delay=uint32 {{ lock_delay }}
+      tags:
+        - 1.8.4
+# 2 Services
+# Ubuntu since 16.04 does not recommend NTP so we are only checking for timesyncd or chrony
+
+- name: 2.2.3.1 - Configure timesyncd
+  ansible.builtin.template:
+    src: "timesyncd.conf"
+    dest: /etc/systemd/timesyncd.conf
+    owner: root
+    group: root
+    mode: 0644
+  when: time_service == "timesyncd"
+  notify: Restart timesyncd
+  tags:
+    - 2.1.3.1
+
+- name: 2.2.3.2 - Enable and start timesyncd
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    masked: false
+    enabled: true
+    state: started
+  when: time_service == "timesyncd"
+  tags:
+    - 2.2.3.2
+
 - name: 3.1.3 - Ensure bluetooth is disabled
   ansible.builtin.systemd:
     name: bluetooth
@@ -381,6 +517,16 @@
         port: 5353
         proto: udp
         comment: 'avahi'
+        direction: out
+        to: any
+      notify: Enable ufw # 3.5.1.2
+
+    - name: ufw allow out 123/udp comment 'NTP'
+      community.general.ufw:
+        rule: allow
+        port: 123
+        proto: udp
+        comment: 'NTP'
         direction: out
         to: any
       notify: Enable ufw # 3.5.1.2
